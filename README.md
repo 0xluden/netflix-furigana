@@ -69,6 +69,20 @@ Netflix occasionally changes their player DOM. If it breaks, open DevTools on Ne
 
 ---
 
+## ⚠️ Known Issues
+
+### Name furigana only works from the start of an episode
+
+Netflix annotates character names with official furigana the first time they appear on screen. The extension captures these as it sees them and remembers them for the session (`nameMemory`). If you start watching mid-episode — or skip past the scene where a name is first introduced — that name won't be in memory.
+
+When a name is unknown, kuromoji will fall back to guessing: it splits the kanji individually and applies its own readings, which are often wrong for proper nouns.
+
+**Workaround:** Start from the beginning of an episode. Name introductions almost always happen early.
+
+A proper fix would require a pre-built name dictionary — technically doable but not yet implemented.
+
+---
+
 ## 📚 Dictionary
 
 Definitions come from the [Jisho.org API](https://jisho.org) (JMdict — 200k+ entries). Results are cached per session so each word is only fetched once.
