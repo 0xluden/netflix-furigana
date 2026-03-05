@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Netflix Japanese",
+  "version": "1.0.0",
+  "description": "Learn Japanese while watching Netflix — furigana, hover definitions, JLPT levels, and more.",
+  "background": { "service_worker": "src/background.js" },
+  "permissions": ["storage", "scripting"],
+  "host_permissions": [
+    "https://www.netflix.com/*",
+    "https://jisho.org/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.netflix.com/*"],
+      "js": ["src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/kuromoji.js", "src/tokenizer-worker.js", "dict/*"],
+      "matches": ["https://www.netflix.com/*"]
+    }
+  ]
+}

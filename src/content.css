@@ -1,0 +1,141 @@
+/* ─── Overlay — covers Netflix subtitle container exactly ────────────────── */
+#nj-overlay {
+  pointer-events: none;
+  z-index: 2147483640;
+  /* Match Netflix container layout: lines stacked at bottom */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* Hide Netflix's subtitle text. Target the inner styled span specifically.
+   From DOM inspection: the text is in span[lang="ja"] inside .player-timedtext-text-container.
+   We exclude anything inside #nj-overlay so our own tokens stay visible. */
+.player-timedtext-text-container span:not(#nj-overlay *),
+.player-timedtext span[lang]:not(#nj-overlay *),
+.nfp-captions span:not(#nj-overlay *) {
+  color: transparent !important;
+  text-shadow: none !important;
+}
+
+/* Each subtitle line in our overlay */
+.nj-line {
+  pointer-events: auto;
+  text-align: center;
+  width: 100%;
+  /* Don't add margin — syncOverlayPosition matches Netflix's layout */
+}
+
+/* ─── Ruby / Furigana ────────────────────────────────────────────────────── */
+ruby.nj-token {
+  display: inline ruby;
+  ruby-align: center;
+}
+
+.nj-rt {
+  font-size: 0.5em;
+  color: #ffe082;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  line-height: 1.2;
+}
+
+.nj-furigana-hidden .nj-rt {
+  display: none;
+}
+
+/* ─── Token hover ────────────────────────────────────────────────────────── */
+.nj-token {
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.nj-token:hover {
+  background: rgba(255, 224, 130, 0.25);
+  outline: 1px solid rgba(255, 224, 130, 0.4);
+}
+
+/* ─── Tooltip ─────────────────────────────────────────────────────────────── */
+#nj-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  width: 320px;
+  background: #0d0d0d;
+  border: 1px solid rgba(255, 224, 130, 0.25);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset;
+  font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic Pro', 'Yu Gothic', sans-serif;
+  font-size: 14px;
+  color: #f0f0f0;
+  pointer-events: auto;
+  animation: nj-fade-in 0.12s ease;
+}
+
+@keyframes nj-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.nj-tooltip-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.nj-word    { font-size: 22px; font-weight: 700; color: #fff; }
+.nj-reading { font-size: 13px; color: #ffe082; font-style: italic; }
+
+.nj-jlpt {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 20px;
+  letter-spacing: 0.05em; margin-left: auto;
+}
+.nj-jlpt-n1 { background: #b71c1c; color: #fff; }
+.nj-jlpt-n2 { background: #e65100; color: #fff; }
+.nj-jlpt-n3 { background: #f57f17; color: #fff; }
+.nj-jlpt-n4 { background: #558b2f; color: #fff; }
+.nj-jlpt-n5 { background: #1565c0; color: #fff; }
+
+.nj-pos { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.nj-pos span {
+  font-size: 11px; color: #aaa;
+  background: rgba(255,255,255,0.07);
+  border-radius: 4px; padding: 2px 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.nj-defs { display: flex; flex-direction: column; gap: 6px; }
+.nj-def  { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+.nj-def-num  { font-size: 11px; color: #ffe082; font-weight: 700; min-width: 14px; margin-top: 2px; }
+.nj-def-text { font-size: 13px; color: #e0e0e0; flex: 1; }
+.nj-def-info { font-size: 11px; color: #888; display: block; margin-top: 2px; }
+.nj-no-def   { color: #666; font-style: italic; font-size: 13px; }
+
+.nj-tooltip-footer {
+  font-size: 10px; color: #444; text-align: right;
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.nj-loading { color: #888; font-size: 13px; padding: 8px 0; text-align: center; }
+
+/* ─── Furigana HUD ───────────────────────────────────────────────────────── */
+#nj-hud {
+  position: fixed; top: 80px; left: 50%;
+  transform: translateX(-50%) translateY(-10px);
+  z-index: 2147483646;
+  background: rgba(0,0,0,0.85); color: #ffe082;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 16px; font-weight: 700;
+  padding: 10px 24px; border-radius: 30px;
+  border: 1px solid rgba(255,224,130,0.3);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#nj-hud.nj-hud-show { opacity: 1; transform: translateX(-50%) translateY(0); }
