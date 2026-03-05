@@ -2,6 +2,8 @@
 
 A Chrome extension to learn Japanese while watching Netflix — furigana above kanji, hover tooltips with definitions, JLPT levels, and parts of speech.
 
+> **Note:** This is a vibe coded project — it works, but there may be hiccups. Use at your own risk and feel free to open issues.
+
 ---
 
 ## ⚠️ Required First Step — Bundle Kuromoji
