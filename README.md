@@ -1,4 +1,4 @@
-# 🎌 Netflix Japanese
+# 🎌 Netflix Furigana
 
 A Chrome extension to learn Japanese while watching Netflix — furigana above kanji, hover tooltips with definitions, JLPT levels, and parts of speech.
 
@@ -70,6 +70,10 @@ Netflix occasionally changes their player DOM. If it breaks, open DevTools on Ne
 ---
 
 ## ⚠️ Known Issues
+
+### Extension may not work in full screen
+
+The extension sometimes stops functioning when Netflix is in full screen mode. If furigana or tooltips disappear, try exiting full screen.
 
 ### Name furigana only works from the start of an episode
 
