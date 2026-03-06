@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Netflix Japanese",
+  "name": "Netflix Furigana",
   "version": "1.0.0",
   "description": "Learn Japanese while watching Netflix — furigana, hover definitions, JLPT levels, and more.",
   "background": { "service_worker": "src/background.js" },
