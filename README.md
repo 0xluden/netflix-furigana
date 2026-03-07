@@ -73,7 +73,7 @@ Netflix occasionally changes their player DOM. If it breaks, open DevTools on Ne
 
 ### Extension may not work in full screen
 
-The extension sometimes stops functioning when Netflix is in full screen mode. If furigana or tooltips disappear, try exiting full screen.
+The extension may not work when using **Netflix's built-in full screen button**. If furigana or tooltips disappear, exit full screen and use **F11** or Chrome's full screen option instead.
 
 ### Name furigana only works from the start of an episode
 
