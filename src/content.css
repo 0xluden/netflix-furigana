@@ -13,12 +13,28 @@
 
 /* Hide Netflix's subtitle text. Target the inner styled span specifically.
    From DOM inspection: the text is in span[lang="ja"] inside .player-timedtext-text-container.
-   We exclude anything inside #nj-overlay so our own tokens stay visible. */
-.player-timedtext-text-container span:not(#nj-overlay *),
-.player-timedtext span[lang]:not(#nj-overlay *),
-.nfp-captions span:not(#nj-overlay *) {
+   We exclude anything inside #nj-overlay so our own tokens stay visible.
+   Only active while we render a replacement overlay (html.nj-hide-native is
+   toggled by content.js) — non-Japanese subtitles stay untouched. */
+html.nj-hide-native .player-timedtext-text-container span:not(#nj-overlay *),
+html.nj-hide-native .player-timedtext span[lang]:not(#nj-overlay *),
+html.nj-hide-native .nfp-captions span:not(#nj-overlay *) {
   color: transparent !important;
   text-shadow: none !important;
+}
+
+/* ─── Dual subtitles: Japanese track above the chosen subs ────────────────── */
+#nj-dual {
+  position: fixed;
+  display: none;
+  z-index: 2147483640;
+  text-align: center;
+  pointer-events: none;
+  color: #ffffff;
+  text-shadow: #000000 0px 0px 7px;
+  font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic Pro', 'Yu Gothic', sans-serif;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 /* Each subtitle line in our overlay */

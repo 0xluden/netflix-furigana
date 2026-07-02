@@ -36,7 +36,25 @@ This copies the tokenizer (~2MB) and dictionary files into the extension. Do thi
 | Key | Action |
 |-----|--------|
 | `F` | Toggle furigana on/off |
+| `J` | Toggle dual subtitles (Japanese on top) |
 | `Esc` | Close tooltip |
+
+---
+
+## 🈺 Dual Subtitles
+
+Watch with subtitles in **your language** while the **official Japanese subtitles** (with furigana and hover dictionary) appear on a line just above them. Great for e.g. Chinese or English subs + Japanese on top.
+
+- Toggle with the **`J`** key or the popup switch (**off by default**)
+- Uses only Netflix's **official** Japanese subtitle track — no machine translation
+- Works even with subtitles turned off (the Japanese line sits near the bottom of the video)
+- When your selected subtitles are already Japanese, the dual line hides itself (the normal furigana overlay handles them)
+
+How it works: a small script captures Netflix's own playback manifest, which lists every available subtitle track, then downloads the official Japanese WebVTT track and syncs it to the video locally.
+
+**Limitations:**
+- The title must actually offer Japanese subtitles on Netflix
+- If you install or reload the extension while a video is already playing, refresh the page so the manifest can be captured
 
 ---
 
@@ -104,6 +122,7 @@ netflix-japanese/
 │   ├── kuromoji-bundle.js
 │   ├── content.js
 │   ├── content.css
+│   ├── page-hook.js       ← Runs in the page context; captures subtitle tracks
 │   ├── popup.html
 │   └── popup.js
 └── icons/

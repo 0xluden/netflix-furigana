@@ -27,6 +27,19 @@ const state = {
   tokenizeIdCounter: 0,
   pollTimer: null,
   lastSubtitleKey: '',   // hash of last rendered subtitle block
+  // Language of Netflix's currently selected text track (BCP-47, e.g. 'ja',
+  // 'zh-Hans'; 'off' when subtitles are disabled; null until the page hook
+  // reports it — then a kana heuristic is used instead)
+  selectedTrackLang: null,
+  // Dual-subtitle mode: official Japanese track rendered above the chosen subs
+  dualEnabled: false,
+  dualEl: null,
+  dualTracks: new Map(),      // movieId -> track list from the page hook
+  dualCues: null,             // parsed cues for the current movie
+  dualCuesMovieId: null,
+  dualFetchPending: false,
+  dualFetchFailures: new Map(), // movieId -> failed fetch attempts
+  lastDualKey: '',
 };
 
 const renderCache = new Map(); // text → tokens[]
@@ -114,6 +127,21 @@ function parseJisho(json, word, reading) {
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 const hasKanji = s => /[\u4E00-\u9FAF\u3400-\u4DBF]/.test(s);
+const hasKana  = s => /[\u3040-\u309F\u30A0-\u30FF]/.test(s);
+
+// Chinese subtitles also contain kanji, so a character-class check alone is not
+// enough to know the text is Japanese.
+// Primary signal: the selected track's language reported by the page hook.
+// Fallback (track unknown or subtitles 'off'): kana only appear in Japanese.
+function isJapaneseSubtitle(blockText) {
+  const lang = state.selectedTrackLang;
+  if (lang && lang !== 'off') return lang.startsWith('ja');
+  return hasKana(blockText);
+}
+
+function setNativeHidden(hidden) {
+  document.documentElement.classList.toggle('nj-hide-native', hidden);
+}
 const k2h = s => s.replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
 
 // Proper nouns stay katakana; common words shown in hiragana (standard for learners)
@@ -257,6 +285,203 @@ function extractSubtitleLines(container) {
     .filter(l => l.text);
 }
 
+// ─── Dual Subtitles (official Japanese track over the chosen subs) ────────────
+// The page hook (src/page-hook.js, MAIN world) captures Netflix's manifest,
+// which lists every available subtitle track with a WebVTT download URL, and
+// fetches the Japanese one for us. We parse the cues and sync them against
+// video.currentTime in the existing poll loop.
+
+function getCurrentMovieId() {
+  const m = location.pathname.match(/\/watch\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+function parseVttTimestamp(ts) {
+  const m = ts.match(/(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{3})/);
+  if (!m) return null;
+  return (m[1] ? +m[1] * 3600 : 0) + +m[2] * 60 + +m[3] + +m[4] / 1000;
+}
+
+function parseWebVTT(text) {
+  const cues = [];
+  for (const block of text.replace(/\r/g, '').split(/\n\n+/)) {
+    const lines = block.split('\n').filter(Boolean);
+    const timeIdx = lines.findIndex(l => l.includes('-->'));
+    if (timeIdx === -1) continue;
+    const [startRaw, endRaw] = lines[timeIdx].split('-->');
+    const start = parseVttTimestamp(startRaw.trim());
+    const end   = parseVttTimestamp(endRaw.trim());
+    if (start == null || end == null) continue;
+    const raw = lines.slice(timeIdx + 1).join('\n');
+
+    // Netflix's Japanese VTT may carry ruby name annotations — harvest them
+    // as overrides (and into nameMemory) before stripping markup
+    const rubyOverrides = new Map();
+    raw.replace(/<ruby[^>]*>([^<]+)<rt[^>]*>([^<]+)<\/rt>\s*<\/ruby>/g, (full, surface, reading) => {
+      surface = surface.trim(); reading = reading.trim();
+      if (surface && reading) {
+        rubyOverrides.set(surface, reading);
+        if (!nameMemory.has(surface)) nameMemory.set(surface, reading);
+      }
+      return full;
+    });
+
+    const clean = raw
+      .replace(/<rt[^>]*>[^<]*<\/rt>/g, '')   // ruby readings are not base text
+      .replace(/<[^>]+>/g, '')                // strip remaining VTT/HTML tags
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+      .trim();
+    if (clean) cues.push({ start, end, text: clean, rubyOverrides });
+  }
+  return cues;
+}
+
+function pickJapaneseTrack(tracks) {
+  const ja = tracks.filter(t => t.language && t.language.startsWith('ja'));
+  return ja.find(t => !t.isClosedCaptions) || ja[0] || null;
+}
+
+// Request the Japanese VTT for the current movie if we don't have it yet
+function ensureDualCues(movieId) {
+  if (state.dualFetchPending) return;
+  if ((state.dualFetchFailures.get(movieId) || 0) >= 3) return;
+  const tracks = state.dualTracks.get(movieId);
+  if (!tracks) return; // manifest not captured (yet)
+  const track = pickJapaneseTrack(tracks);
+  if (!track) return;  // title has no official Japanese subs
+  state.dualFetchPending = true;
+  window.postMessage({ nj: true, type: 'FETCH_TRACK', url: track.url, movieId }, '*');
+}
+
+function createDualEl() {
+  const el = document.createElement('div');
+  el.id = 'nj-dual';
+  document.body.appendChild(el);
+  state.dualEl = el;
+}
+
+function hideDual() {
+  if (state.lastDualKey !== '' && state.dualEl) {
+    state.dualEl.style.display = 'none';
+    state.dualEl.innerHTML = '';
+  }
+  state.lastDualKey = '';
+}
+
+// Anchor the dual line just above Netflix's visible subtitle block; when no
+// native subtitle is on screen, sit near the bottom of the video instead
+function positionDualEl(video) {
+  const el = state.dualEl;
+  const vr = video.getBoundingClientRect();
+  let anchorTop = null;
+  const container = getNetflixSubtitleContainer();
+  if (container) {
+    container.querySelectorAll('.player-timedtext-text-container').forEach(lineEl => {
+      const r = lineEl.getBoundingClientRect();
+      if (r.width && r.height) anchorTop = anchorTop === null ? r.top : Math.min(anchorTop, r.top);
+    });
+  }
+  const bottom = anchorTop !== null ? anchorTop - 8 : vr.bottom - vr.height * 0.1;
+  el.style.left     = vr.left + 'px';
+  el.style.width    = vr.width + 'px';
+  el.style.bottom   = Math.max(0, window.innerHeight - bottom) + 'px';
+  el.style.fontSize = Math.max(20, Math.round(vr.height * 0.043)) + 'px';
+}
+
+let dualRendering = false;
+
+async function renderDualSubtitle() {
+  if (!state.dualEnabled || !state.dualEl) { hideDual(); return; }
+  // When Japanese subs are already selected the main overlay annotates them
+  if (state.selectedTrackLang && state.selectedTrackLang.startsWith('ja')) { hideDual(); return; }
+
+  const movieId = getCurrentMovieId();
+  const video = document.querySelector('video');
+  if (!movieId || !video) { hideDual(); return; }
+  if (state.dualCuesMovieId !== movieId) {
+    ensureDualCues(movieId);
+    hideDual();
+    return;
+  }
+
+  const t = video.currentTime;
+  const active = state.dualCues.filter(c => t >= c.start && t <= c.end);
+  // One rendered line per VTT text line, each with its cue's ruby overrides
+  const lines = active.flatMap(c =>
+    c.text.split('\n').map(text => ({ text, rubyOverrides: c.rubyOverrides })));
+  const key = lines.map(l => l.text).join('\n');
+
+  if (!lines.length) { hideDual(); return; }
+  positionDualEl(video);
+  if (key === state.lastDualKey || dualRendering) return;
+
+  dualRendering = true;
+  try {
+    const tokenizedLines = await Promise.all(lines.map(async l => {
+      let tokens = renderCache.get(l.text);
+      if (!tokens) {
+        tokens = await tokenize(l.text);
+        if (tokens.length) renderCache.set(l.text, tokens);
+      }
+      return { ...l, tokens };
+    }));
+
+    state.lastDualKey = key;
+    const el = state.dualEl;
+    el.innerHTML = '';
+    for (const { text, tokens, rubyOverrides } of tokenizedLines) {
+      const lineEl = tokens && tokens.length
+        ? buildLineEl(tokens, rubyOverrides || new Map())
+        : (() => { const d = document.createElement('div'); d.className = 'nj-line'; d.textContent = text; return d; })();
+      el.appendChild(lineEl);
+    }
+    el.querySelectorAll('.nj-token').forEach(attachHover);
+    el.style.display = 'block';
+  } finally {
+    dualRendering = false;
+  }
+}
+
+function setDualEnabled(value, showHud) {
+  state.dualEnabled = value;
+  chrome.storage.local.set({ dualSubsEnabled: value });
+  if (!value) hideDual();
+  if (showHud) {
+    let hud = document.getElementById('nj-hud');
+    if (!hud) { hud = document.createElement('div'); hud.id = 'nj-hud'; document.body.appendChild(hud); }
+    hud.textContent = value ? '日本語字幕 ON' : '日本語字幕 OFF';
+    hud.classList.add('nj-hud-show');
+    setTimeout(() => hud.classList.remove('nj-hud-show'), 1500);
+  }
+}
+
+// ─── Page Hook Messages ───────────────────────────────────────────────────────
+window.addEventListener('message', evt => {
+  if (evt.source !== window || !evt.data || evt.data.nj !== true) return;
+  const d = evt.data;
+  if (d.type === 'SELECTED_TRACK') {
+    if (state.selectedTrackLang !== d.bcp47) {
+      state.selectedTrackLang = d.bcp47;
+      state.lastSubtitleKey = ''; // language changed — re-evaluate current subtitle
+      console.log('[NJ] Selected subtitle track:', d.bcp47);
+    }
+  } else if (d.type === 'TRACKS') {
+    state.dualTracks.set(d.movieId, d.tracks);
+    console.log(`[NJ] Captured ${d.tracks.length} subtitle tracks for movie ${d.movieId}`);
+  } else if (d.type === 'TRACK_VTT') {
+    state.dualFetchPending = false;
+    if (d.movieId === getCurrentMovieId()) {
+      state.dualCues = parseWebVTT(d.text);
+      state.dualCuesMovieId = d.movieId;
+      console.log(`[NJ] Japanese track loaded: ${state.dualCues.length} cues`);
+    }
+  } else if (d.type === 'TRACK_VTT_ERROR') {
+    state.dualFetchPending = false;
+    state.dualFetchFailures.set(d.movieId, (state.dualFetchFailures.get(d.movieId) || 0) + 1);
+    console.warn('[NJ] Japanese track fetch failed:', d.error);
+  }
+});
+
 // ─── Overlay ──────────────────────────────────────────────────────────────────
 function createOverlay() {
   const el = document.createElement('div');
@@ -359,8 +584,17 @@ async function renderSubtitles(container) {
     const overlay = state.overlayEl;
     if (!lines.length || !lines.some(l => /[\u3040-\u9FAF\u4E00-\u9FAF]/.test(l.text))) {
       overlay.innerHTML = '';
+      setNativeHidden(false);
       return;
     }
+
+    // Non-Japanese subtitles (e.g. Chinese): leave Netflix's own text alone
+    if (!isJapaneseSubtitle(key)) {
+      overlay.innerHTML = '';
+      setNativeHidden(false);
+      return;
+    }
+    setNativeHidden(true);
 
     const tokenizedLines = await Promise.all(lines.map(async l => {
       if (!/[\u3040-\u9FAF\u4E00-\u9FAF]/.test(l.text)) return { ...l, tokens: null };
@@ -403,8 +637,8 @@ function startPolling() {
   state.pollTimer = setInterval(() => {
     if (!state.tokenizerReady) return;
     const container = getNetflixSubtitleContainer();
-    if (!container) return;
-    renderSubtitles(container);
+    if (container) renderSubtitles(container);
+    renderDualSubtitle();
   }, 200);
 }
 
@@ -493,21 +727,35 @@ function toggleFurigana() {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey &&
-      !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) toggleFurigana();
+  if (e.ctrlKey || e.metaKey || e.altKey ||
+      ['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+  if (e.key === 'f') toggleFurigana();
+  else if (e.key === 'j') setDualEnabled(!state.dualEnabled, true);
+});
+
+// Popup toggles
+chrome.runtime.onMessage.addListener(msg => {
+  if (msg?.type === 'SET_DUAL') {
+    setDualEnabled(!!msg.value, false);
+  } else if (msg?.type === 'SET_FURIGANA') {
+    state.furiganaVisible = !!msg.value;
+    document.documentElement.classList.toggle('nj-furigana-hidden', !state.furiganaVisible);
+  }
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 async function boot() {
   console.log('[NJ] Booting...');
-  chrome.storage.local.get(['furiganaVisible'], r => {
+  chrome.storage.local.get(['furiganaVisible', 'dualSubsEnabled'], r => {
     if (r.furiganaVisible === false) {
       state.furiganaVisible = false;
       document.documentElement.classList.add('nj-furigana-hidden');
     }
+    state.dualEnabled = r.dualSubsEnabled === true;
   });
   createTooltip();
   createOverlay();
+  createDualEl();
   try {
     await initWorker();
   } catch(e) {
